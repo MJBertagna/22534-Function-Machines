@@ -10,14 +10,10 @@ import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 
-//0 servo is arm
-//1 servo is bottom wheel
-//2 servo is top wheel
-
-
 @TeleOp(name = "crashOutA")
 public class BasicOpModeA extends OpMode {
 
+    public double PIDSign = 1;
     public double integralSum = 0;
     public double Kp = 0.013;
     public double Ki = 0;
@@ -29,12 +25,17 @@ public class BasicOpModeA extends OpMode {
     //counter on 3 is top bucket
     //counter on 4 is bottom hanging bar
     //counter on 5 is top hanging bar
-    int reference = 0;
     public int counter = 0;
+    int reference = 0;//Reference for the target position of the linear slide
     public boolean isRightBumperPressed = false;
     public boolean isLeftBumperPressed = false;
-    public boolean isTrianglePressed = false;
-    public boolean isXPressed = false;
+
+    public boolean isSquarePressed = false;
+    public boolean isCirclePressed = false;
+    public boolean intakeInToggle = false;
+    public boolean intakeOutToggle = false;
+
+
     //public double powerLeft = 0;
     public double powerRight = 0;
 
@@ -46,15 +47,14 @@ public class BasicOpModeA extends OpMode {
     public DcMotor backRightMotor = null;
     public DcMotor backLeftMotor = null;
 
-    public Servo armServo = null;
-    public CRServo bottomWheel = null;
-    public CRServo topWheel = null;
+    public Servo intakeArm = null;
+    public CRServo intake = null;
+
+    public Servo clawArm = null;
+    public Servo claw = null;
 
     public DcMotorEx leftElevator = null;
     public DcMotorEx rightElevator = null;
-
-    //public Servo clawServo = null;
-    //public Servo armServo = null;
 
     //DeadZone variables for stick drift
     public final double leftStickDeadZone = 0.15;
@@ -69,17 +69,17 @@ public class BasicOpModeA extends OpMode {
         backLeftMotor = hardwareMap.get(DcMotor.class, "blD");
         backRightMotor = hardwareMap.get(DcMotor.class, "brD");
 
-        armServo = hardwareMap.get(Servo.class, "arm");
-        bottomWheel = hardwareMap.get(CRServo.class, "bottomWheel");
-        topWheel = hardwareMap.get(CRServo.class, "topWheel");
+        intakeArm = hardwareMap.get(Servo.class, "intakePivot");
+        intake = hardwareMap.get(CRServo.class, "intakeSpin");
 
+        clawArm = hardwareMap.get(Servo.class, "clawPivot");
+        claw = hardwareMap.get(Servo.class, "clawOpen");
 
         leftElevator = hardwareMap.get(DcMotorEx.class, "lS");
         rightElevator = hardwareMap.get(DcMotorEx.class, "rS");
 
         frontRightMotor.setDirection(DcMotorSimple.Direction.REVERSE);
         backRightMotor.setDirection(DcMotorSimple.Direction.REVERSE);
-        topWheel.setDirection(DcMotorSimple.Direction.REVERSE);
         rightElevator.setDirection(DcMotorSimple.Direction.REVERSE);
 
         leftElevator.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
@@ -91,6 +91,9 @@ public class BasicOpModeA extends OpMode {
     @Override
     public void loop() {
 
+        //////////////////////////////////////////////////////////////////////////////////////
+        //Speed multiplier code
+        //Controls to change the speed multiplier on the wheels
         if(gamepad1.dpad_up)
             speedMultiplier = 0.8;
         if(gamepad1.dpad_left)
@@ -108,6 +111,8 @@ public class BasicOpModeA extends OpMode {
         if(speedMultiplier > 1)
             speedMultiplier = 1;
 
+        ////////////////////////////////////////////////////////////////////////////////////////
+        //Movement Code
         double leftStickX = gamepad1.left_stick_x;
         double leftStickY = gamepad1.left_stick_y;
         double rightStickX = gamepad1.right_stick_x;
@@ -124,27 +129,113 @@ public class BasicOpModeA extends OpMode {
         double y = leftStickY;
         double yaw = rightStickX;
 
+        //Calculates the power for each wheel
         double denominator = Math.max(Math.abs(x) + Math.abs(y) + Math.abs(yaw), 1);
         double frontLeftPower = (y - x - yaw) / denominator;
         double frontRightPower = (y + x + yaw) / denominator;
         double backLeftPower = (y + x - yaw) / denominator;
         double backRightPower = (y - x + yaw) / denominator;
 
+        //Sets the power to each wheel
         frontRightMotor.setPower(frontRightPower * speedMultiplier);
         frontLeftMotor.setPower(frontLeftPower * speedMultiplier);
         backLeftMotor.setPower(backLeftPower * speedMultiplier);
         backRightMotor.setPower(backRightPower * speedMultiplier);
 
 
-        if(gamepad1.y)
-            armServo.setPosition(.5);
+        ///////////////////////////////////////////////////////////////////////////////////////
+        //Claw Code
 
-        topWheel.setPower(-gamepad1.right_trigger + gamepad1.left_trigger);//Reversed Direction
-        bottomWheel.setPower(gamepad1.right_trigger - gamepad1.left_trigger);
+        //CLAW ARM CODE
+        //If the counter is set to the bottom position then set the arm servo to extend outwards
+        double clawArmPosition = gamepad2.right_trigger * 0.625;
+        clawArm.setPosition(1 - clawArmPosition);
+
+        //Sets the claw position
+        //Closes the claw
+        if(gamepad2.triangle){
+            claw.setPosition(0.3);
+        }
+        //Opens the claw
+        if(gamepad2.cross){
+            claw.setPosition(0.7);
+        }
 
 
-        //raises the elevator
-        if(gamepad1.right_bumper) {
+        ///////////////////////////////////////////////////////////////////////////////////////
+        //Intake Code
+
+        //INTAKE ARM CODE
+        intakeArm.setPosition(gamepad2.left_trigger);
+
+
+        //INTAKE CODE
+        //Toggles the intake(outake) on and off
+        if(gamepad2.square){
+            intakeInToggle = false;
+            if(!isSquarePressed){
+                intakeOutToggle = !intakeOutToggle;
+            }
+            isSquarePressed = true;
+        }else{
+            isSquarePressed = false;
+        }
+
+        if(intakeOutToggle){
+            intake.setPower(1);
+        }
+
+
+        //Toggle on and off for the intake
+        if(gamepad2.circle){
+            intakeOutToggle = false;
+            if(!isCirclePressed){
+                intakeInToggle = !intakeInToggle;
+            }
+            isCirclePressed = true;
+        }else{
+            isCirclePressed = false;
+        }
+
+        if(intakeInToggle){
+            intake.setPower(-1);
+        }
+
+        //If both are false set the intake power to 0
+        if(!intakeOutToggle && !intakeInToggle){
+            intake.setPower(0);
+        }
+
+        /////////////////////////////////////////////////////////////////////////////////////
+        //PID Constants
+        if(gamepad1.square){
+            PIDSign = -1;
+        }else{
+            PIDSign = 1;
+        }
+        if(gamepad1.triangle){
+            Kp += 0.0001 * PIDSign;
+        }
+        if(gamepad1.circle){
+            Ki += 0.0001 * PIDSign;
+        }
+        if(gamepad1.cross){
+            Kd += 0.0001 * PIDSign;
+        }
+
+
+        if(Kp < 0)
+            Kp = 0;
+        if(Ki < 0)
+            Ki = 0;
+        if(Kd < 0)
+            Kd = 0;
+
+
+        /////////////////////////////////////////////////////////////////////////////////////
+        //Elevator Code
+        //Raises the counter by one to change the reference point for the linear slide
+        if(gamepad2.right_bumper) {
             if (!isRightBumperPressed) {
                 // do thing
                 setCounter(counter, 1);
@@ -154,8 +245,8 @@ public class BasicOpModeA extends OpMode {
             isRightBumperPressed = false;
         }
 
-        //lowers the elevator
-        if(gamepad1.left_bumper) {
+        //Lowers the counter by one to change the reference point for the linear slide
+        if(gamepad2.left_bumper) {
             if (!isLeftBumperPressed) {
                 // do thing
                 setCounter(counter, -1);
@@ -165,35 +256,24 @@ public class BasicOpModeA extends OpMode {
             isLeftBumperPressed = false;
         }
 
-
-        //Changes the PID constants
-        if(gamepad1.dpad_right){
-            if(gamepad1.square)
-                Ki-=0.001;
-            if(gamepad1.circle)
-                Kd-=0.001;
-        }else{
-            if(gamepad1.square)
-                Ki+=0.001;
-            if(gamepad1.circle)
-                Kd+=0.0001;
-        }
-
-        if(Kp < 0)
-            Kp = 0;
-        if(Ki < 0)
-            Ki = 0;
-        if(Kd < 0)
-            Kd = 0;
-
         findElevatorPower(counter);
+        //If the position of the linear slides is between a set range/interval
+        //The elevator power from the PID will by 20% of what it found
+        //Only uses the right elevator in order for both slides to maintain the same height
         if(rightElevator.getCurrentPosition() > reference - 100 && rightElevator.getCurrentPosition() < reference + 50){
             setElevatorPower(powerRight * 0.2, powerRight * 0.2);
         }else{
+            //If not between the set range/interval it will use what the PID found
             setElevatorPower(powerRight, powerRight);
         }
 
 
+        /////////////////////////////////////////////////////////////////////////
+        //Telemetry Data
+
+        //Adds data for the driver station to show
+        telemetry.addData("Intake Arm Position", intakeArm.getPosition());
+        telemetry.addData("Claw Arm Position", clawArm.getPosition());
         telemetry.addData("Proportional", Kp);
         telemetry.addData("Integral", Ki);
         telemetry.addData("Derivative", Kd);
@@ -207,7 +287,9 @@ public class BasicOpModeA extends OpMode {
 
     }
 
-    //Positional PID
+    /////////////////////////////////////////////////////////////////////////////////////////
+
+    //Positional PID for the linear slide
     public double PIDControl(double reference, double state){
         double error = reference - state;
         integralSum += error * timer.seconds();
@@ -220,6 +302,8 @@ public class BasicOpModeA extends OpMode {
         return output;
     }
 
+
+    //Finds the elevator power for the slides given a specific count
     public void findElevatorPower(int count){
         if(count == 0){
             //powerLeft = PIDControl(reference, leftElevator.getCurrentPosition());
@@ -242,11 +326,13 @@ public class BasicOpModeA extends OpMode {
 //        }
     }
 
+
     //Sets the elevators power using the values from the PID
     public void setElevatorPower(double powerLeft, double powerRight){
         leftElevator.setPower(powerLeft);
         rightElevator.setPower(powerRight);
     }
+
 
     //Sets the counter and makes sure it doesn't go over or under the limit
     public void setCounter(int tempCounter, int sign){
